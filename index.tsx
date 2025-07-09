@@ -1,58 +1,73 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
-*/
+ */
 /* tslint:disable */
 
 import {GoogleGenAI} from '@google/genai';
 import {marked} from 'marked';
 
+// 定义所使用的 Gemini 模型名称
 const MODEL_NAME = 'gemini-2.5-flash-preview-04-17';
 
+// 定义笔记对象的接口
 interface Note {
-  id: string;
-  rawTranscription: string;
-  polishedNote: string;
-  timestamp: number;
+  id: string; // 笔记的唯一标识符
+  rawTranscription: string; // 原始的语音转录文本
+  polishedNote: string; // 经过 AI 润色后的笔记内容
+  timestamp: number; // 创建笔记时的时间戳
 }
 
+/**
+ * 语音笔记应用的主类
+ * 封装了所有与录音、转录、UI交互和主题切换相关的功能。
+ */
 class VoiceNotesApp {
+  // Gemini AI 实例，用于与 AI 模型交互
   private genAI: any;
+  // MediaRecorder 实例，用于录制音频
   private mediaRecorder: MediaRecorder | null = null;
+  // UI 元素引用
   private recordButton: HTMLButtonElement;
   private recordingStatus: HTMLDivElement;
   private rawTranscription: HTMLDivElement;
   private polishedNote: HTMLDivElement;
   private newButton: HTMLButtonElement;
   private themeToggleButton: HTMLButtonElement;
-  private themeToggleIcon: HTMLElement;
+  private themeToggleIcon: HTMLElement; // 主题切换按钮中的图标
+  // 录音和音频处理相关的状态
   private audioChunks: Blob[] = [];
   private isRecording = false;
   private currentNote: Note | null = null;
   private stream: MediaStream | null = null;
   private editorTitle: HTMLDivElement;
-  private hasAttemptedPermission = false;
+  private hasAttemptedPermission = false; // 标记是否已尝试请求麦克风权限 (此属性在当前代码中未使用)
 
+  // 实时录音界面的 UI 元素
   private recordingInterface: HTMLDivElement;
   private liveRecordingTitle: HTMLDivElement;
   private liveWaveformCanvas: HTMLCanvasElement | null;
   private liveWaveformCtx: CanvasRenderingContext2D | null = null;
   private liveRecordingTimerDisplay: HTMLDivElement;
   private statusIndicatorDiv: HTMLDivElement | null;
-
+  
+  // 音频可视化相关的属性
   private audioContext: AudioContext | null = null;
   private analyserNode: AnalyserNode | null = null;
   private waveformDataArray: Uint8Array | null = null;
-  private waveformDrawingId: number | null = null;
+  private waveformDrawingId: number | null = null; // 用于存储 requestAnimationFrame 的 ID
+  // 计时器相关的属性
   private timerIntervalId: number | null = null;
   private recordingStartTime: number = 0;
 
   constructor() {
+    // 初始化 Google GenAI 客户端
     this.genAI = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY!,
+      apiKey: process.env.GEMINI_API_KEY!, // 从环境变量中获取 API 密钥
       apiVersion: 'v1alpha',
     });
 
+    // 获取所有必要的 DOM 元素
     this.recordButton = document.getElementById(
       'recordButton',
     ) as HTMLButtonElement;
@@ -89,9 +104,11 @@ class VoiceNotesApp {
       'liveRecordingTimerDisplay',
     ) as HTMLDivElement;
 
+    // 初始化实时波形图的 canvas 上下文
     if (this.liveWaveformCanvas) {
       this.liveWaveformCtx = this.liveWaveformCanvas.getContext('2d');
     } else {
+      // 如果找不到 canvas 元素，则在控制台发出警告
       console.warn(
         'Live waveform canvas element not found. Visualizer will not work.',
       );
@@ -106,21 +123,29 @@ class VoiceNotesApp {
       this.statusIndicatorDiv = null;
     }
 
+    // 绑定事件监听器
     this.bindEventListeners();
+    // 初始化主题
     this.initTheme();
+    // 创建一个新笔记
     this.createNewNote();
 
+    // 设置初始录音状态文本
     this.recordingStatus.textContent = 'Ready to record';
   }
 
+  // 绑定所有事件监听器
   private bindEventListeners(): void {
     this.recordButton.addEventListener('click', () => this.toggleRecording());
     this.newButton.addEventListener('click', () => this.createNewNote());
     this.themeToggleButton.addEventListener('click', () => this.toggleTheme());
+    // 监听窗口大小变化，以调整 canvas 尺寸
     window.addEventListener('resize', this.handleResize.bind(this));
   }
 
+  // 处理窗口大小变化事件，用于重新设置 canvas 尺寸
   private handleResize(): void {
+    // 仅在录音且波形图可见时执行
     if (
       this.isRecording &&
       this.liveWaveformCanvas &&
@@ -132,22 +157,26 @@ class VoiceNotesApp {
     }
   }
 
+  // 设置 canvas 的尺寸，考虑设备像素比以实现高清渲染
   private setupCanvasDimensions(): void {
     if (!this.liveWaveformCanvas || !this.liveWaveformCtx) return;
 
     const canvas = this.liveWaveformCanvas;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = window.devicePixelRatio || 1; // 获取设备像素比
 
-    const rect = canvas.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect(); // 获取 canvas 的 CSS 尺寸
     const cssWidth = rect.width;
     const cssHeight = rect.height;
 
+    // 设置 canvas 的实际绘图表面尺寸
     canvas.width = Math.round(cssWidth * dpr);
     canvas.height = Math.round(cssHeight * dpr);
 
+    // 缩放 canvas 上下文，以匹配设备像素比，使得绘图坐标与 CSS 像素一致
     this.liveWaveformCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
+  // 初始化主题，从 localStorage 读取并应用
   private initTheme(): void {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'light') {
@@ -161,6 +190,7 @@ class VoiceNotesApp {
     }
   }
 
+  // 切换亮色/暗色主题，并保存到 localStorage
   private toggleTheme(): void {
     document.body.classList.toggle('light-mode');
     if (document.body.classList.contains('light-mode')) {
@@ -174,6 +204,7 @@ class VoiceNotesApp {
     }
   }
 
+  // 切换录音状态（开始/停止）
   private async toggleRecording(): Promise<void> {
     if (!this.isRecording) {
       await this.startRecording();
@@ -182,24 +213,34 @@ class VoiceNotesApp {
     }
   }
 
+  // 设置音频可视化器，初始化 AudioContext 和 AnalyserNode
   private setupAudioVisualizer(): void {
+    // 如果没有媒体流或已存在 AudioContext，则不执行
     if (!this.stream || this.audioContext) return;
 
+    // 创建 AudioContext，兼容旧版浏览器
     this.audioContext = new (window.AudioContext ||
       (window as any).webkitAudioContext)();
+    // 从媒体流创建音频源
     const source = this.audioContext.createMediaStreamSource(this.stream);
+    // 创建分析器节点
     this.analyserNode = this.audioContext.createAnalyser();
 
-    this.analyserNode.fftSize = 256;
-    this.analyserNode.smoothingTimeConstant = 0.75;
+    // 设置分析器参数
+    this.analyserNode.fftSize = 256; // FFT 大小，决定了频率数据的数量
+    this.analyserNode.smoothingTimeConstant = 0.75; // 平滑系数，使波形变化更平滑
 
+    // 创建用于存储波形数据的数组
     const bufferLength = this.analyserNode.frequencyBinCount;
     this.waveformDataArray = new Uint8Array(bufferLength);
 
+    // 连接音频节点：源 -> 分析器
     source.connect(this.analyserNode);
   }
 
+  // 绘制实时音频波形图
   private drawLiveWaveform(): void {
+    // 检查所有必需的元素和状态是否存在
     if (
       !this.analyserNode ||
       !this.waveformDataArray ||
@@ -207,24 +248,30 @@ class VoiceNotesApp {
       !this.liveWaveformCanvas ||
       !this.isRecording
     ) {
+      // 如果不满足条件，停止动画循环
       if (this.waveformDrawingId) cancelAnimationFrame(this.waveformDrawingId);
       this.waveformDrawingId = null;
       return;
     }
 
+    // 使用 requestAnimationFrame 实现流畅的动画效果
     this.waveformDrawingId = requestAnimationFrame(() =>
       this.drawLiveWaveform(),
     );
+    // 获取当前的频率数据
     this.analyserNode.getByteFrequencyData(this.waveformDataArray);
 
     const ctx = this.liveWaveformCtx;
     const canvas = this.liveWaveformCanvas;
 
+    // 获取 canvas 的逻辑尺寸（CSS 尺寸）
     const logicalWidth = canvas.clientWidth;
     const logicalHeight = canvas.clientHeight;
 
+    // 清空画布
     ctx.clearRect(0, 0, logicalWidth, logicalHeight);
 
+    // 计算要绘制的柱状条数量和宽度
     const bufferLength = this.analyserNode.frequencyBinCount;
     const numBars = Math.floor(bufferLength * 0.5);
 
@@ -236,24 +283,30 @@ class VoiceNotesApp {
 
     let x = 0;
 
+    // 从 CSS 变量中获取录音状态的颜色
     const recordingColor =
       getComputedStyle(document.documentElement)
         .getPropertyValue('--color-recording')
         .trim() || '#ff3b30';
     ctx.fillStyle = recordingColor;
 
+    // 遍历频率数据并绘制柱状条
     for (let i = 0; i < numBars; i++) {
       if (x >= logicalWidth) break;
 
+      // 计算每个柱状条的高度
       const dataIndex = Math.floor(i * (bufferLength / numBars));
       const barHeightNormalized = this.waveformDataArray[dataIndex] / 255.0;
       let barHeight = barHeightNormalized * logicalHeight;
 
+      // 确保最小高度为 1 像素，避免看不见
       if (barHeight < 1 && barHeight > 0) barHeight = 1;
       barHeight = Math.round(barHeight);
 
+      // 计算 y 坐标，使柱状条从中心向上下扩展
       const y = Math.round((logicalHeight - barHeight) / 2);
 
+      // 绘制矩形
       ctx.fillRect(Math.floor(x), y, barWidth, barHeight);
       x += barWidth + barSpacing;
     }
