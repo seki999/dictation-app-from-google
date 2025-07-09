@@ -3,14 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dictation App</title>
+    <title>语音笔记应用</title>
+    <!-- 引入应用的 CSS 样式文件 -->
     <link rel="stylesheet" href="/index.css">
+    <!-- 预连接到 Google 字体服务器以提高加载性能 -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" <!-- 引入 Inter 字体 -->
       rel="stylesheet"
     />
+    <!-- 使用 importmap 来管理 JavaScript 模块的导入，简化模块路径 -->
     <script type="importmap">
       {
         "imports": {
@@ -22,28 +25,39 @@
   </head>
   <body>
     <div class="app-container">
+      <!-- 主内容区域 -->
       <div class="main-content">
+        <!-- 笔记编辑区域 -->
         <div class="note-area">
+          <!-- 笔记头部，包含标题和标签页导航 -->
           <div class="note-header">
+            <!-- 笔记标题，contenteditable=true 允许用户直接编辑 -->
             <div class="editor-title" contenteditable="true" placeholder="Untitled Note">
               Untitled Note
             </div>
+            <!-- 标签页导航容器 -->
             <div class="tab-navigation-container">
               <div class="tab-navigation">
+                <!-- “润色后”标签页按钮，默认为激活状态 -->
                 <button class="tab-button active" data-tab="note">Polished</button>
+                <!-- “原始”标签页按钮 -->
                 <button class="tab-button" data-tab="raw">Raw</button>
+                <!-- 活动标签页的下划线指示器 -->
                 <div class="active-tab-indicator"></div>
               </div>
             </div>
           </div>
 
+          <!-- 笔记内容包装器，包含两个可切换的视图 -->
           <div class="note-content-wrapper">
+            <!-- 润色后的笔记内容区域 -->
             <div
               id="polishedNote"
               class="note-content active"
               contenteditable="true"
               placeholder="Your polished notes will appear here..."
             ></div>
+            <!-- 原始转录内容区域 -->
             <div
               id="rawTranscription"
               class="note-content"
@@ -53,24 +67,32 @@
           </div>
         </div>
 
+        <!-- 录音界面 -->
         <div class="recording-interface">
+          <!-- 实时录音标题，默认隐藏 -->
           <div id="liveRecordingTitle" class="live-recording-title" style="display: none">
             Recording
           </div>
+          <!-- 实时音频波形图的 Canvas，默认隐藏 -->
           <canvas id="liveWaveformCanvas" style="display: none"></canvas>
+          <!-- 实时录音计时器，默认隐藏 -->
           <div id="liveRecordingTimerDisplay" class="live-recording-timer" style="display: none">
             00:00.00
           </div>
 
+          <!-- 状态指示器区域 -->
           <div class="status-indicator">
             <span id="recordingStatus" class="status-text">Ready to record</span>
           </div>
 
+          <!-- 录音控制按钮区域 -->
           <div class="recording-controls">
+            <!-- 主题切换按钮 -->
             <button class="action-button" id="themeToggleButton" title="Toggle Theme">
               <i class="fas fa-sun"></i>
             </button>
 
+            <!-- 主录音按钮 -->
             <button id="recordButton" class="record-button" title="Start/Stop Recording">
               <div class="record-button-inner">
                 <i class="fas fa-microphone"></i>
@@ -83,6 +105,7 @@
               <span class="record-text">Record</span>
             </button>
 
+            <!-- 新建笔记/清空按钮 -->
             <button class="action-button" id="newButton" title="New Note / Clear">
               <i class="fas fa-file"></i>
             </button>
@@ -91,21 +114,31 @@
       </div>
     </div>
 
+    <!-- 调试面板，此处未使用 -->
     <div id="micStatus" class="debug-panel"></div>
 
+    <!-- 内联脚本，处理标签页切换的交互逻辑 -->
     <script>
       document.addEventListener("DOMContentLoaded", () => {
+        // 获取所有需要的 DOM 元素
         const tabNav = document.querySelector(".tab-navigation");
         const tabButtons = tabNav.querySelectorAll(".tab-button");
         const activeTabIndicator = tabNav.querySelector(".active-tab-indicator");
         const noteContents = document.querySelectorAll(".note-content");
 
+        /**
+         * 设置活动的标签页
+         * @param {HTMLElement} activeButton - 被点击并需要激活的按钮
+         * @param {boolean} [skipAnimation=false] - 是否跳过切换动画（用于初始化和窗口缩放）
+         */
         function setActiveTab(activeButton, skipAnimation = false) {
           if (!activeButton || !activeTabIndicator) return;
 
+          // 移除所有按钮的 'active' 类，然后给当前按钮添加
           tabButtons.forEach((btn) => btn.classList.remove("active"));
           activeButton.classList.add("active");
 
+          // 根据激活按钮的 data-tab 属性，显示对应的内容区域
           const tabName = activeButton.getAttribute("data-tab");
           noteContents.forEach((content) => content.classList.remove("active"));
 
@@ -115,45 +148,55 @@
             document.getElementById("polishedNote").classList.add("active");
           }
 
+          // 控制下划线指示器的动画
           const originalTransition = activeTabIndicator.style.transition;
           if (skipAnimation) {
+            // 临时禁用动画
             activeTabIndicator.style.transition = "none";
           } else {
+            // 恢复 CSS 中定义的动画
             activeTabIndicator.style.transition = "";
           }
 
+          // 移动并调整下划线指示器的位置和宽度，使其与激活的按钮对齐
           activeTabIndicator.style.left = `${activeButton.offsetLeft}px`;
           activeTabIndicator.style.width = `${activeButton.offsetWidth}px`;
 
+          // 如果跳过了动画，在下一帧恢复动画设置，以确保后续点击有动画效果
           if (skipAnimation) {
-            activeTabIndicator.offsetHeight;
+            activeTabIndicator.offsetHeight; // 强制浏览器重绘
             activeTabIndicator.style.transition = originalTransition;
           }
         }
 
+        // 为每个标签页按钮绑定点击事件
         tabButtons.forEach((button) => {
           button.addEventListener("click", (e) => {
             setActiveTab(e.currentTarget);
           });
         });
 
+        // 初始化时，设置默认的活动标签页
         const initiallyActiveButton = tabNav.querySelector(".tab-button.active");
         if (initiallyActiveButton) {
+          // 使用 requestAnimationFrame 确保在浏览器完成初始渲染后执行
           requestAnimationFrame(() => {
-            setActiveTab(initiallyActiveButton, true);
+            setActiveTab(initiallyActiveButton, true); // 跳过动画
           });
         }
 
+        // 监听窗口大小变化事件，重新计算并设置活动指示器的位置
         window.addEventListener("resize", () => {
           requestAnimationFrame(() => {
             const currentActiveButton = tabNav.querySelector(".tab-button.active");
             if (currentActiveButton) {
-              setActiveTab(currentActiveButton, true);
+              setActiveTab(currentActiveButton, true); // 跳过动画
             }
           });
         });
       });
     </script>
+  <!-- 引入主应用的 TypeScript 模块脚本 -->
   <script type="module" src="/index.tsx"></script>
 </body>
 </html>
