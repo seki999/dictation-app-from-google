@@ -428,8 +428,10 @@ class VoiceNotesApp {
     this.waveformDataArray = null;
   }
 
+  // 开始录音
   private async startRecording(): Promise<void> {
     try {
+      // 清理上一次录音的残留数据
       this.audioChunks = [];
       if (this.stream) {
         this.stream.getTracks().forEach((track) => track.stop());
@@ -442,9 +444,11 @@ class VoiceNotesApp {
 
       this.recordingStatus.textContent = 'Requesting microphone access...';
 
+      // 请求麦克风权限
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({audio: true});
       } catch (err) {
+        // 如果标准约束失败，尝试使用更宽松的约束（禁用回声消除等）
         console.error('Failed with basic constraints:', err);
         this.stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -455,6 +459,7 @@ class VoiceNotesApp {
         });
       }
 
+      // 创建 MediaRecorder 实例，优先使用 'audio/webm' 格式
       try {
         this.mediaRecorder = new MediaRecorder(this.stream, {
           mimeType: 'audio/webm',
@@ -464,12 +469,15 @@ class VoiceNotesApp {
         this.mediaRecorder = new MediaRecorder(this.stream);
       }
 
+      // 当有音频数据可用时，存入 audioChunks 数组
       this.mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0)
           this.audioChunks.push(event.data);
       };
 
+      // 当录音停止时，处理音频数据
       this.mediaRecorder.onstop = () => {
+        // 停止实时显示界面
         this.stopLiveDisplay();
 
         if (this.audioChunks.length > 0) {
@@ -477,7 +485,7 @@ class VoiceNotesApp {
             type: this.mediaRecorder?.mimeType || 'audio/webm',
           });
           this.processAudio(audioBlob).catch((err) => {
-            console.error('Error processing audio:', err);
+            console.error('Error processing audio:', err); // 捕获并记录处理音频时的错误
             this.recordingStatus.textContent = 'Error processing recording';
           });
         } else {
@@ -485,6 +493,7 @@ class VoiceNotesApp {
             'No audio data captured. Please try again.';
         }
 
+        // 停止媒体流轨道
         if (this.stream) {
           this.stream.getTracks().forEach((track) => {
             track.stop();
@@ -493,14 +502,18 @@ class VoiceNotesApp {
         }
       };
 
+      // 开始录音
       this.mediaRecorder.start();
       this.isRecording = true;
 
+      // 更新 UI 状态
       this.recordButton.classList.add('recording');
       this.recordButton.setAttribute('title', 'Stop Recording');
 
+      // 启动实时显示界面
       this.startLiveDisplay();
     } catch (error) {
+      // 统一处理录音开始过程中的各种错误
       console.error('Error starting recording:', error);
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -512,6 +525,7 @@ class VoiceNotesApp {
       ) {
         this.recordingStatus.textContent =
           'Microphone permission denied. Please check browser settings and reload page.';
+      // 处理找不到设备错误
       } else if (
         errorName === 'NotFoundError' ||
         (errorName === 'DOMException' &&
@@ -519,6 +533,7 @@ class VoiceNotesApp {
       ) {
         this.recordingStatus.textContent =
           'No microphone found. Please connect a microphone.';
+      // 处理设备被占用或无法读取错误
       } else if (
         errorName === 'NotReadableError' ||
         errorName === 'AbortError' ||
@@ -527,10 +542,12 @@ class VoiceNotesApp {
       ) {
         this.recordingStatus.textContent =
           'Cannot access microphone. It may be in use by another application.';
+      // 处理其他未知错误
       } else {
         this.recordingStatus.textContent = `Error: ${errorMessage}`;
       }
 
+      // 重置状态
       this.isRecording = false;
       if (this.stream) {
         this.stream.getTracks().forEach((track) => track.stop());
@@ -542,6 +559,7 @@ class VoiceNotesApp {
     }
   }
 
+  // 停止录音
   private async stopRecording(): Promise<void> {
     if (this.mediaRecorder && this.isRecording) {
       try {
@@ -553,26 +571,32 @@ class VoiceNotesApp {
 
       this.isRecording = false;
 
+      // 更新 UI 状态
       this.recordButton.classList.remove('recording');
       this.recordButton.setAttribute('title', 'Start Recording');
       this.recordingStatus.textContent = 'Processing audio...';
     } else {
+      // 如果状态已经是 "未在录音"，也确保实时显示被停止
       if (!this.isRecording) this.stopLiveDisplay();
     }
   }
 
+  // 处理录制的音频 Blob 数据
   private async processAudio(audioBlob: Blob): Promise<void> {
+    // 如果没有录到音频，则提示用户
     if (audioBlob.size === 0) {
       this.recordingStatus.textContent =
         'No audio data captured. Please try again.';
       return;
     }
 
+    // 使用 try-catch 块来处理可能发生的错误
     try {
       URL.createObjectURL(audioBlob);
 
       this.recordingStatus.textContent = 'Converting audio...';
 
+      // 将 Blob 转换为 Base64 编码的字符串
       const reader = new FileReader();
       const readResult = new Promise<string>((resolve, reject) => {
         reader.onloadend = () => {
@@ -588,10 +612,12 @@ class VoiceNotesApp {
       });
       reader.readAsDataURL(audioBlob);
       const base64Audio = await readResult;
-
+      
+      // 确保转换成功
       if (!base64Audio) throw new Error('Failed to convert audio to base64');
 
       const mimeType = this.mediaRecorder?.mimeType || 'audio/webm';
+      // 调用 API 进行转录
       await this.getTranscription(base64Audio, mimeType);
     } catch (error) {
       console.error('Error in processAudio:', error);
@@ -600,6 +626,7 @@ class VoiceNotesApp {
     }
   }
 
+  // 调用 Gemini API 将音频转录为文本
   private async getTranscription(
     base64Audio: string,
     mimeType: string,
@@ -607,6 +634,7 @@ class VoiceNotesApp {
     try {
       this.recordingStatus.textContent = 'Getting transcription...';
 
+      // 构建发送给 API 的请求内容
       const contents = [
         {text: 'Generate a complete, detailed transcript of this audio.'},
         {inlineData: {mimeType: mimeType, data: base64Audio}},
@@ -620,6 +648,7 @@ class VoiceNotesApp {
       const transcriptionText = response.text;
 
       if (transcriptionText) {
+        // 更新 UI 显示原始转录文本
         this.rawTranscription.textContent = transcriptionText;
         if (transcriptionText.trim() !== '') {
           this.rawTranscription.classList.remove('placeholder-active');
@@ -632,6 +661,7 @@ class VoiceNotesApp {
 
         if (this.currentNote)
           this.currentNote.rawTranscription = transcriptionText;
+        // 转录成功后，继续进行笔记润色
         this.recordingStatus.textContent =
           'Transcription complete. Polishing note...';
         this.getPolishedNote().catch((err) => {
@@ -640,6 +670,7 @@ class VoiceNotesApp {
             'Error polishing note after transcription.';
         });
       } else {
+        // 处理转录失败或返回空内容的情况
         this.recordingStatus.textContent =
           'Transcription failed or returned empty.';
         this.polishedNote.innerHTML =
@@ -649,6 +680,7 @@ class VoiceNotesApp {
         this.rawTranscription.classList.add('placeholder-active');
       }
     } catch (error) {
+      // 处理 API 请求错误
       console.error('Error getting transcription:', error);
       this.recordingStatus.textContent =
         'Error getting transcription. Please try again.';
@@ -659,8 +691,10 @@ class VoiceNotesApp {
     }
   }
 
+  // 调用 Gemini API 润色原始转录文本
   private async getPolishedNote(): Promise<void> {
     try {
+      // 如果没有原始转录，则不进行润色
       if (
         !this.rawTranscription.textContent ||
         this.rawTranscription.textContent.trim() === '' ||
@@ -677,6 +711,7 @@ class VoiceNotesApp {
 
       this.recordingStatus.textContent = 'Polishing note...';
 
+      // 构建润色提示
       const prompt = `Take this raw transcription and create a polished, well-formatted note.
                     Remove filler words (um, uh, like), repetitions, and false starts.
                     Format any lists or bullet points properly. Use markdown formatting for headings, lists, etc.
@@ -693,7 +728,9 @@ class VoiceNotesApp {
       const polishedText = response.text;
 
       if (polishedText) {
+        // 使用 marked 库将返回的 Markdown 文本转换为 HTML
         const htmlContent = marked.parse(polishedText);
+        // 更新 UI 显示润色后的笔记
         this.polishedNote.innerHTML = htmlContent;
         if (polishedText.trim() !== '') {
           this.polishedNote.classList.remove('placeholder-active');
@@ -704,9 +741,11 @@ class VoiceNotesApp {
           this.polishedNote.classList.add('placeholder-active');
         }
 
+        // 尝试从润色后的笔记中提取标题
         let noteTitleSet = false;
         const lines = polishedText.split('\n').map((l) => l.trim());
 
+        // 优先使用 Markdown 标题 (#) 作为笔记标题
         for (const line of lines) {
           if (line.startsWith('#')) {
             const title = line.replace(/^#+\s+/, '').trim();
@@ -719,6 +758,7 @@ class VoiceNotesApp {
           }
         }
 
+        // 如果没有找到 Markdown 标题，则尝试使用第一个有效行作为标题
         if (!noteTitleSet && this.editorTitle) {
           for (const line of lines) {
             if (line.length > 0) {
@@ -730,6 +770,7 @@ class VoiceNotesApp {
               potentialTitle = potentialTitle.trim();
 
               if (potentialTitle.length > 3) {
+                // 截断过长的标题
                 const maxLength = 60;
                 this.editorTitle.textContent =
                   potentialTitle.substring(0, maxLength) +
@@ -742,6 +783,7 @@ class VoiceNotesApp {
           }
         }
 
+        // 如果仍未设置标题，则保持或设置占位符
         if (!noteTitleSet && this.editorTitle) {
           const currentEditorText = this.editorTitle.textContent?.trim();
           const placeholderText =
@@ -757,11 +799,13 @@ class VoiceNotesApp {
           }
         }
 
+        // 保存润色后的笔记内容
         if (this.currentNote) this.currentNote.polishedNote = polishedText;
         this.recordingStatus.textContent =
           'Note polished. Ready for next recording.';
       } else {
-        this.recordingStatus.textContent =
+        // 处理润色失败或返回空内容的情况
+        this.recordingStatus.textContent = 
           'Polishing failed or returned empty.';
         this.polishedNote.innerHTML =
           '<p><em>Polishing returned empty. Raw transcription is available.</em></p>';
@@ -776,6 +820,7 @@ class VoiceNotesApp {
         }
       }
     } catch (error) {
+      // 处理 API 请求错误
       console.error('Error polishing note:', error);
       this.recordingStatus.textContent =
         'Error polishing note. Please try again.';
@@ -791,7 +836,9 @@ class VoiceNotesApp {
     }
   }
 
+  // 创建一个全新的笔记
   private createNewNote(): void {
+    // 初始化新的笔记对象
     this.currentNote = {
       id: `note_${Date.now()}`,
       rawTranscription: '',
@@ -799,6 +846,7 @@ class VoiceNotesApp {
       timestamp: Date.now(),
     };
 
+    // 重置 UI 区域为占位符状态
     const rawPlaceholder =
       this.rawTranscription.getAttribute('placeholder') || '';
     this.rawTranscription.textContent = rawPlaceholder;
@@ -817,6 +865,7 @@ class VoiceNotesApp {
     }
     this.recordingStatus.textContent = 'Ready to record';
 
+    // 如果正在录音，则停止
     if (this.isRecording) {
       this.mediaRecorder?.stop();
       this.isRecording = false;
@@ -827,20 +876,25 @@ class VoiceNotesApp {
   }
 }
 
+// 当 DOM 内容加载完成后，初始化应用
 document.addEventListener('DOMContentLoaded', () => {
   new VoiceNotesApp();
 
+  // 为所有带有 contenteditable 和 placeholder 属性的元素设置占位符逻辑
   document
     .querySelectorAll<HTMLElement>('[contenteditable][placeholder]')
     .forEach((el) => {
       const placeholder = el.getAttribute('placeholder')!;
 
+      // 更新占位符的显示状态
       function updatePlaceholderState() {
+        // polishedNote 使用 innerText 以避免计算 HTML 标签
         const currentText = (
           el.id === 'polishedNote' ? el.innerText : el.textContent
         )?.trim();
 
         if (currentText === '' || currentText === placeholder) {
+          // 如果内容为空，则显示占位符文本并添加样式类
           if (el.id === 'polishedNote' && currentText === '') {
             el.innerHTML = placeholder;
           } else if (currentText === '') {
@@ -848,14 +902,17 @@ document.addEventListener('DOMContentLoaded', () => {
           }
           el.classList.add('placeholder-active');
         } else {
+          // 如果有内容，则移除占位符样式类
           el.classList.remove('placeholder-active');
         }
       }
 
       updatePlaceholderState();
 
+      // 当元素获得焦点时，如果内容是占位符，则清空内容
       el.addEventListener('focus', function () {
         const currentText = (
+          // 同样，对 polishedNote 特殊处理
           this.id === 'polishedNote' ? this.innerText : this.textContent
         )?.trim();
         if (currentText === placeholder) {
@@ -865,6 +922,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
+      // 当元素失去焦点时，重新检查并更新占位符状态
       el.addEventListener('blur', function () {
         updatePlaceholderState();
       });
